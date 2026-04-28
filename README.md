@@ -2,13 +2,14 @@
 
 A small local PDF literature manager built with Python, SQLite, and Streamlit.
 
-It scans a folder of PDF papers, builds a local database, guesses publication year, assigns a category, creates short English search tags, and gives you a browser-based shelf for searching and editing metadata.
+It scans a folder of PDF papers, builds a local database, extracts abstracts when possible, guesses publication year, assigns a category, creates short English search tags, and gives you a browser-based shelf for searching and editing metadata.
 
 ## Features
 
 - Scan local PDF files into a SQLite database
+- Extract abstracts from the first pages of PDFs when possible
 - Guess title, year, category, and short English tags
-- Search by filename, title, author, tag, or notes
+- Search by filename, title, author, abstract, tag, or notes
 - Filter papers by category
 - Edit category, tags, and notes in the browser
 - Open the original PDF from the shelf
@@ -81,7 +82,13 @@ To regenerate all automatic tags:
 python scan_papers.py --refresh-tags
 ```
 
-Normal rescanning keeps manually edited tags.
+To regenerate automatic categories and tags after improving the classification rules:
+
+```bash
+python scan_papers.py --refresh-all
+```
+
+Normal rescanning keeps manually edited tags and categories. Use `--refresh-all` only when you want to rebuild the automatic metadata.
 
 ### 6. Run the shelf
 
@@ -100,6 +107,7 @@ On Windows, you can also double-click:
 ```text
 scan_papers.bat
 run_shelf.bat
+refresh_all.bat
 ```
 
 ## Suggested Workflow
@@ -131,9 +139,10 @@ You can customize these rules in `scan_papers.py`.
 
 ```text
 app.py              Streamlit browser interface
-scan_papers.py      PDF scanner and classifier
+scan_papers.py      PDF scanner, abstract extractor, and classifier
 requirements.txt    Python dependencies
-scan_papers.bat     Windows helper script for scanning
+scan_papers.bat     Windows helper script for normal scanning
+refresh_all.bat     Windows helper script for rebuilding automatic metadata
 run_shelf.bat       Windows helper script for launching the app
 .streamlit/         Streamlit local config
 .gitignore          Keeps PDFs, database, and local environment out of Git

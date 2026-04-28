@@ -302,6 +302,7 @@ def connect() -> sqlite3.Connection:
             title TEXT,
             authors TEXT,
             year TEXT,
+            abstract TEXT DEFAULT '',
             pages INTEGER,
             category TEXT DEFAULT 'Unsorted',
             tags TEXT DEFAULT '',
@@ -312,7 +313,14 @@ def connect() -> sqlite3.Connection:
         )
         """
     )
+    ensure_columns(conn)
     return conn
+
+
+def ensure_columns(conn: sqlite3.Connection) -> None:
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(papers)")}
+    if "abstract" not in existing:
+        conn.execute("ALTER TABLE papers ADD COLUMN abstract TEXT DEFAULT ''")
 
 
 def clean_title(text: str) -> str:
@@ -331,8 +339,10 @@ def guess_year(text: str) -> str:
     return str(max(valid)) if valid else ""
 
 
-def guess_category_and_tags(title: str, filename: str = "") -> tuple[str, str]:
-    text = f"{title} {filename}".lower()
+def guess_category_and_tags(title: str, filename: str = "", abstract: str = "") -> tuple[str, str]:
+    title_text = f"{title} {filename}".lower()
+    abstract_text = abstract.lower()
+    text = f"{title_text} {abstract_text}"
     matched_terms = []
 
     sensory_terms = [
@@ -348,19 +358,27 @@ def guess_category_and_tags(title: str, filename: str = "") -> tuple[str, str]:
     ]
     sensory_hits = [term for term in sensory_terms if term_in_text(term, text)]
     if sensory_hits:
-        return "Olfactory / taste receptors", build_tags(title, filename, sensory_hits[:3])
+        return "Olfactory / taste receptors", build_tags(title, filename, abstract, sensory_hits[:3])
 
+    category_scores = []
     for category, terms in CLASSIFICATION_RULES:
-        hits = [term.strip() for term in terms if term_in_text(term, text)]
+        title_hits = [term.strip() for term in terms if term_in_text(term, title_text)]
+        abstract_hits = [term.strip() for term in terms if term_in_text(term, abstract_text)]
+        hits = list(dict.fromkeys(title_hits + abstract_hits))
         if hits:
-            matched_terms.extend(hits[:3])
-            return category, build_tags(title, filename, matched_terms)
+            score = len(title_hits) * 3 + len(abstract_hits)
+            category_scores.append((score, category, hits))
 
-    return "Unsorted", build_tags(title, filename, [])
+    if category_scores:
+        _, category, hits = max(category_scores, key=lambda item: item[0])
+        matched_terms.extend(hits[:3])
+        return category, build_tags(title, filename, abstract, matched_terms)
+
+    return "Unsorted", build_tags(title, filename, abstract, [])
 
 
-def build_tags(title: str, filename: str, matched_terms: list[str]) -> str:
-    text = f"{title} {filename}".lower()
+def build_tags(title: str, filename: str, abstract: str, matched_terms: list[str]) -> str:
+    text = f"{title} {filename} {abstract[:800]}".lower()
     words = re.findall(r"[a-z][a-z0-9-]{2,}", text)
     stopwords = {
         "the",
@@ -377,6 +395,18 @@ def build_tags(title: str, filename: str, matched_terms: list[str]) -> str:
         "reveals",
         "discovery",
         "design",
+        "study",
+        "using",
+        "show",
+        "shown",
+        "important",
+        "results",
+        "suggest",
+        "provide",
+        "identify",
+        "identified",
+        "revealed",
+        "analysis",
         "structure",
         "structures",
         "protein",
@@ -387,29 +417,54 @@ def build_tags(title: str, filename: str, matched_terms: list[str]) -> str:
     return " ".join(tags)[:80]
 
 
-def read_pdf_metadata(path: Path) -> tuple[str, str, int, str]:
+def extract_abstract(text: str) -> str:
+    text = clean_title(text)
+    if not text:
+        return ""
+
+    match = re.search(
+        r"(?is)\babstract\b[:.\s-]*(.*?)(?=\b(?:keywords?|introduction|background|significance|results|methods|materials and methods)\b)",
+        text,
+    )
+    if not match:
+        match = re.search(r"(?is)\babstract\b[:.\s-]*(.{300,1800})", text)
+    if not match:
+        return ""
+
+    abstract = clean_title(match.group(1))
+    abstract = re.sub(r"^(article|research article|original article)\s+", "", abstract, flags=re.I)
+    return abstract[:2000]
+
+
+def read_pdf_metadata(path: Path) -> tuple[str, str, int, str, str]:
     title = ""
     authors = ""
     pages = 0
     first_page_text = ""
+    abstract = ""
     try:
         with fitz.open(path) as doc:
             pages = doc.page_count
             metadata = doc.metadata or {}
             title = clean_title(metadata.get("title", ""))
             authors = clean_title(metadata.get("author", ""))
-            if doc.page_count:
-                first_page_text = clean_title(doc[0].get_text("text")[:3000])
+            sampled_pages = []
+            for page_index in range(min(doc.page_count, 3)):
+                sampled_pages.append(doc[page_index].get_text("text"))
+            first_page_text = clean_title(sampled_pages[0][:3000]) if sampled_pages else ""
+            abstract = extract_abstract("\n".join(sampled_pages))
     except Exception:
         pass
 
     if not title:
         title = title_from_filename(path)
-    return title, authors, pages, first_page_text
+    return title, authors, pages, first_page_text, abstract
 
 
 def scan() -> None:
     refresh_tags = "--refresh-tags" in sys.argv
+    refresh_categories = "--refresh-categories" in sys.argv
+    refresh_all = "--refresh-all" in sys.argv
     pdfs = sorted(BASE_DIR.glob("*.pdf"))
     now = datetime.now().isoformat(timespec="seconds")
     conn = connect()
@@ -417,36 +472,55 @@ def scan() -> None:
     inserted = 0
     updated = 0
     for pdf in pdfs:
-        title, authors, pages, first_page_text = read_pdf_metadata(pdf)
-        year = guess_year(title + " " + pdf.name + " " + first_page_text)
-        category, tags = guess_category_and_tags(title, pdf.name)
+        title, authors, pages, first_page_text, abstract = read_pdf_metadata(pdf)
+        year = guess_year(title + " " + pdf.name + " " + first_page_text + " " + abstract)
+        category, tags = guess_category_and_tags(title, pdf.name, abstract)
 
         existing = conn.execute(
-            "SELECT id, tags, category FROM papers WHERE filename = ?",
+            "SELECT id, tags, category, abstract FROM papers WHERE filename = ?",
             (pdf.name,),
         ).fetchone()
 
         if existing:
             current_tags = existing[1] or ""
-            next_tags = tags if refresh_tags or not current_tags.strip() else current_tags
+            current_category = existing[2] or ""
+            current_abstract = existing[3] or ""
+            next_tags = tags if refresh_all or refresh_tags or not current_tags.strip() else current_tags
+            next_category = (
+                category
+                if refresh_all or refresh_categories or not current_category.strip() or current_category == "Unsorted"
+                else current_category
+            )
+            next_abstract = abstract if abstract or not current_abstract.strip() else current_abstract
             conn.execute(
                 """
                 UPDATE papers
-                SET path = ?, title = ?, authors = ?, year = ?, pages = ?,
+                SET path = ?, title = ?, authors = ?, year = ?, abstract = ?, pages = ?,
                     category = ?, tags = ?, updated_at = ?
                 WHERE filename = ?
                 """,
-                (str(pdf), title, authors, year, pages, category, next_tags, now, pdf.name),
+                (
+                    str(pdf),
+                    title,
+                    authors,
+                    year,
+                    next_abstract,
+                    pages,
+                    next_category,
+                    next_tags,
+                    now,
+                    pdf.name,
+                ),
             )
             updated += 1
         else:
             conn.execute(
                 """
                 INSERT INTO papers
-                (filename, path, title, authors, year, pages, category, tags, added_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (filename, path, title, authors, year, abstract, pages, category, tags, added_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (pdf.name, str(pdf), title, authors, year, pages, category, tags, now, now),
+                (pdf.name, str(pdf), title, authors, year, abstract, pages, category, tags, now, now),
             )
             inserted += 1
 

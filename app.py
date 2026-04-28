@@ -33,12 +33,13 @@ def save_row(row: pd.Series) -> None:
         conn.execute(
             """
             UPDATE papers
-            SET category = ?, tags = ?, notes = ?, updated_at = datetime('now')
+            SET category = ?, tags = ?, abstract = ?, notes = ?, updated_at = datetime('now')
             WHERE id = ?
             """,
             (
                 row.get("category", ""),
                 row.get("tags", ""),
+                row.get("abstract", ""),
                 row.get("notes", ""),
                 int(row["id"]),
             ),
@@ -76,7 +77,7 @@ with st.sidebar:
 filtered = df.copy()
 if query:
     q = query.lower()
-    search_cols = ["filename", "title", "authors", "tags", "notes"]
+    search_cols = ["filename", "title", "authors", "abstract", "tags", "notes"]
     mask = filtered[search_cols].fillna("").apply(
         lambda row: row.astype(str).str.lower().str.contains(q, regex=False).any(),
         axis=1,
@@ -90,7 +91,7 @@ left, right = st.columns([0.72, 0.28], gap="large")
 
 with left:
     st.subheader(f"Papers ({len(filtered)} / {len(df)})")
-    show_cols = ["id", "filename", "year", "category", "tags"]
+    show_cols = ["id", "filename", "year", "category", "tags", "abstract"]
     st.dataframe(
         filtered[show_cols],
         hide_index=True,
@@ -116,11 +117,13 @@ with right:
         tags_value = st.text_input("English tags", value=row.get("tags") or "")
         if len(tags_value.split()) > 20:
             st.warning("Tags are longer than 20 words. Shorter tags are easier to search.")
+        abstract_value = st.text_area("Abstract", value=row.get("abstract") or "", height=220)
         notes_value = st.text_area("Notes", value=row.get("notes") or "", height=120)
 
         if st.button("Save changes", type="primary", use_container_width=True):
             row["category"] = category_value
             row["tags"] = tags_value
+            row["abstract"] = abstract_value
             row["notes"] = notes_value
             save_row(row)
             st.success("Saved.")
