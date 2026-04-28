@@ -1,0 +1,23 @@
+# Local papers and generated library data
+*.pdf
+literature.db
+*.sqlite
+*.sqlite3
+literature_shelf_export.csv
+
+# Local Python environment
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Runtime logs
+*.log
+streamlit.out.log
+streamlit.err.log
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
