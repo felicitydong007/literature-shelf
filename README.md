@@ -4,6 +4,14 @@ A small local PDF literature manager built with Python, SQLite, and Streamlit.
 
 It scans a folder of PDF papers, builds a local database, extracts abstracts when possible, guesses publication year, assigns a category, creates short English search tags, and gives you a browser-based shelf for searching and editing metadata.
 
+## What this tool does
+
+Literature Shelf is a small local tool for researchers who keep many PDF papers in one folder.
+
+It does not replace Zotero, EndNote, or other reference managers. Instead, it provides a lightweight personal shelf for quickly searching local PDFs, adding simple tags, writing notes, and organizing papers by research topic.
+
+All PDFs and the local database stay on your own computer. The code can be shared publicly on GitHub, but your PDF papers and `literature.db` file should remain private.
+
 ## Features
 
 - Scan local PDF files into a SQLite database
@@ -26,6 +34,17 @@ This project is designed so the code can be public, while your PDFs and local da
 - `literature.db`
 - `.venv/`
 - log files
+
+## One-minute usage
+
+For Windows users:
+
+1. Put your PDF papers in this project folder.
+2. Double-click `scan_papers.bat` to scan papers.
+3. Double-click `run_shelf.bat` to open the literature shelf.
+4. Open the local webpage shown in the terminal, usually:
+
+http://127.0.0.1:8501
 
 ## Quick Start
 
