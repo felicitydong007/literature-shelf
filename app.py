@@ -17,7 +17,16 @@ st.set_page_config(page_title="Literature Shelf", layout="wide")
 
 
 def connect() -> sqlite3.Connection:
-    return sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)
+    ensure_columns(conn)
+    return conn
+
+
+def ensure_columns(conn: sqlite3.Connection) -> None:
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(papers)")}
+    if "abstract" not in existing:
+        conn.execute("ALTER TABLE papers ADD COLUMN abstract TEXT DEFAULT ''")
+        conn.commit()
 
 
 @st.cache_data(show_spinner=False)
@@ -25,7 +34,11 @@ def load_papers() -> pd.DataFrame:
     if not DB_PATH.exists():
         return pd.DataFrame()
     with connect() as conn:
-        return pd.read_sql_query("SELECT * FROM papers ORDER BY filename", conn)
+        df = pd.read_sql_query("SELECT * FROM papers ORDER BY filename", conn)
+    for column in ["abstract", "tags", "notes", "category", "year"]:
+        if column not in df.columns:
+            df[column] = ""
+    return df
 
 
 def save_row(row: pd.Series) -> None:
@@ -92,11 +105,13 @@ left, right = st.columns([0.72, 0.28], gap="large")
 with left:
     st.subheader(f"Papers ({len(filtered)} / {len(df)})")
     show_cols = ["id", "filename", "year", "category", "tags", "abstract"]
-    st.dataframe(
+    table_event = st.dataframe(
         filtered[show_cols],
         hide_index=True,
         use_container_width=True,
         height=560,
+        selection_mode="single-row",
+        on_select="rerun",
     )
 
 with right:
@@ -105,11 +120,24 @@ with right:
         st.caption("No matching paper.")
     else:
         options = filtered["id"].tolist()
+        selected_id_from_table = None
+        selected_rows = table_event.selection.rows if table_event else []
+        if selected_rows:
+            selected_id_from_table = int(filtered.iloc[selected_rows[0]]["id"])
+            st.session_state["selected_paper_id"] = selected_id_from_table
+
+        selected_paper_id = st.session_state.get("selected_paper_id", options[0])
+        if selected_paper_id not in options:
+            selected_paper_id = options[0]
+            st.session_state["selected_paper_id"] = selected_paper_id
+
         selected_id = st.selectbox(
             "Select paper",
             options,
+            index=options.index(selected_paper_id),
             format_func=lambda paper_id: filtered.loc[filtered["id"] == paper_id, "title"].iloc[0][:80],
         )
+        st.session_state["selected_paper_id"] = selected_id
         row = df.loc[df["id"] == selected_id].iloc[0].copy()
 
         st.caption(row["filename"])
