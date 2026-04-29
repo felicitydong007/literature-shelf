@@ -141,12 +141,10 @@ refresh_all.bat
 
 The current rule-based classifier is tuned for biomedical and drug-discovery literature, including:
 
-- GPCR structural pharmacology
-- Screening methods / DEL
 - Targeted protein degradation
 - Protein design / AI
 - Structural biology / Cryo-EM
-- Antibody / CAR-T / immunotherapy
+- Antibody / immunotherapy
 - Medicinal chemistry / drug discovery
 - Psychiatry / neuropharmacology
 - Metabolism / endocrine
